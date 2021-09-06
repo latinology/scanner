@@ -228,7 +228,7 @@ public struct Syllabifier {
                             if peekIsVowel(2) {
                                 // Liquids can make syllable length go either way
                                 // We split on this syllable before adding if it is a liquid
-                                if next().map { Syllabifier.isLiquid($0) } ?? false {
+                                if next().map { Syllabifier.isLiquid($0) } ?? false && current != next() {
                                     syllables.append((syllable, isLong: next() != current ? nil : true))               
                                     syllable = "\(current)"
                                 } else {
@@ -241,8 +241,15 @@ public struct Syllabifier {
                                 // Reset the scanning state to signify that we have begun a new syllable
                                 state = .idle
                             } else {
-                                // If the following letter is a consonant and there are no upcoming vowels, the current letter will belong to this syllabl
+                                // If the following letter is a consonant and there are no upcoming vowels, the current letter will belong to this syllable
                                 syllable.append(current)
+                                
+                                if next() == nil {
+                                    syllables.append((syllable, syllable.dropLast().last.map {
+                                        Syllabifier.isConsonant($0) 
+                                    } ?? false)) // long by position
+                                    syllable.removeAll()
+                                }
                             }
                         }
                     }
