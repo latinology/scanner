@@ -39,11 +39,11 @@ public struct Syllabifier {
     }
     
     internal static func startsWithVowel(_ string: String) -> Bool {
-        return (string.first.map { 
+        return (string.first.map {
             Syllabifier.isVowel($0)
-        } ?? false) && !((string.first == "i" || string.first == "I") 
-                        && string.dropFirst().first.map { 
-                            Syllabifier.isVowel($0) 
+        } ?? false) && !((string.first == "i" || string.first == "I")
+                        && string.dropFirst().first.map {
+                            Syllabifier.isVowel($0)
                         } ?? false)
     }
     
@@ -57,8 +57,8 @@ public struct Syllabifier {
     ///
     /// - Parameter character: The character to be checked
     public static func isConsonant(_ character: Character) -> Bool {
-        return character.asciiValue.map { 
-            ((65 ..< 90).contains($0) || (97 ..< 123).contains($0)) 
+        return character.asciiValue.map {
+            ((65 ..< 90).contains($0) || (97 ..< 123).contains($0))
                 && (character != "w" || character != "W")
         } ?? false && !Syllabifier.isVowel(character)
     }
@@ -110,7 +110,7 @@ public struct Syllabifier {
     
     /// Represents a syllable component.
     ///
-    /// - `value`: The contents of the syllable 
+    /// - `value`: The contents of the syllable
     /// - `isLong`: Whether or not the syllable is long. A value of `nil` specifies that it could go either way.
     public typealias Syllable = (value: String, isLong: Bool?)
     
@@ -125,7 +125,7 @@ public struct Syllabifier {
     /// Syllabifies the given Latin word, assuming all macrons are provided.
     ///
     /// - Warning: If the word contains a consonantal 'i', a few tricks will be attempted to derive such consonants, but ultimately it is not a perfect system and 'j' must be used for completely accurate results.
-    /// - Parameter word: The given word to be syllabified in accordance with the Latin rules. It is assumed that macrons are properly written, as a dictionary is not embedded which would enable long vowel derivation. 
+    /// - Parameter word: The given word to be syllabified in accordance with the Latin rules. It is assumed that macrons are properly written, as a dictionary is not embedded which would enable long vowel derivation.
     /// - Returns: An array of `Syllable` tuples. See there for more information.
     public static func syllabify(word: String) -> [Syllable] {
         var syllables = [Syllable]()
@@ -156,7 +156,7 @@ public struct Syllabifier {
             }
             
             // Next letter must be a vowel
-            guard peek(n + 1).map { Syllabifier.isVowel($0) } ?? false else {
+            guard peek(n + 1).map({ Syllabifier.isVowel($0) }) ?? false else {
                 return false
             }
             
@@ -172,7 +172,7 @@ public struct Syllabifier {
             if index == word.startIndex {
                 // If it is starting the word, it usually is consonantal
                 return true
-            } else if index > word.startIndex, peek(n - 1).map { Syllabifier.isVowel($0) } ?? false {
+            } else if index > word.startIndex, peek(n - 1).map({ Syllabifier.isVowel($0) }) ?? false {
                 // If it is preceded by a vowel, then it is a double consonantal 'i'
                 // TODO: find some way to indicate this
                 return true
@@ -196,10 +196,23 @@ public struct Syllabifier {
         }
         var state = State.idle
         
+        // A helper function indicating if the syllable has a long vowel or diphthong
+        func inLongVow() -> Bool {
+            return state == .longMonophthong || state == .diphthong
+        }
+        
         while index < word.endIndex {
             let current = word[index]
             
             if Syllabifier.isConsonant(current) || peekIsConI(0) {
+                // Greek letters are transliterated with two Latin letters
+                if Syllabifier.isGreekLetter("\(current)\(next() ?? " ")") {
+                    syllable.append(current)
+                    syllable.append(next()!)
+                    word.formIndex(&index, offsetBy: 2)
+                    continue
+                }
+                
                 if state != .idle {
                     // If we have already encountered vowel(s), then:
                     // - a single consonant marks the start of the next syllable
@@ -208,8 +221,15 @@ public struct Syllabifier {
                     if let (end, start) = Syllabifier.splitConsonant(current) {
                         // If the consonant is a double consonant and then split it
                         syllable.append(end)
+                        if next() == nil {
+                            syllable.append(start)
+                        }
                         syllables.append((syllable, isLong: true)) // long by position
-                        syllable = "\(start)"
+                        if next() == nil {
+                            syllable.removeAll()
+                        } else {
+                            syllable = "\(start)"
+                        }
                         
                         // Reset the scanning state to signify that we have begun a new syllable
                         state = .idle
@@ -218,7 +238,7 @@ public struct Syllabifier {
                         
                         if peekIsVowel(1) {
                             // If the following letter is a vowel, this consonant belongs to the next syllable
-                            syllables.append((syllable, isLong: state == .longMonophthong || state == .diphthong))
+                            syllables.append((syllable, isLong: inLongVow()))
                             syllable = "\(current)"
                             
                             // Reset the scanning state to signify that we have begun a new syllable
@@ -228,8 +248,9 @@ public struct Syllabifier {
                             if peekIsVowel(2) {
                                 // Liquids can make syllable length go either way
                                 // We split on this syllable before adding if it is a liquid
-                                if next().map { Syllabifier.isLiquid($0) } ?? false && current != next() {
-                                    syllables.append((syllable, isLong: next() != current ? nil : true))               
+                                // If the syllable is long already through long vowel or diphthong then this doesn't matter
+                                if next().map({ Syllabifier.isLiquid($0) }) ?? false && current != next() {
+                                    syllables.append((syllable, isLong: (next() != current && !inLongVow()) ? nil : true))
                                     syllable = "\(current)"
                                 } else {
                                     syllable.append(current)
@@ -245,8 +266,8 @@ public struct Syllabifier {
                                 syllable.append(current)
                                 
                                 if next() == nil {
-                                    syllables.append((syllable, syllable.dropLast().last.map {
-                                        Syllabifier.isConsonant($0) 
+                                    syllables.append((syllable, inLongVow() || syllable.dropLast().last.map {
+                                        Syllabifier.isConsonant($0)
                                     } ?? false)) // long by position
                                     syllable.removeAll()
                                 }
@@ -261,7 +282,7 @@ public struct Syllabifier {
                 switch state {
                 case .idle:
                     // Have not yet encountered vowel, add and mark unless it's a 'u' after 'q'
-                    if !((syllable.last == "q" || syllable.last == "Q") 
+                    if !((syllable.last == "q" || syllable.last == "Q")
                         && (current == "u" || current == "U")) {
                         state = Syllabifier.isLongVowel(current) ? .longMonophthong : .monophthong
                     }
@@ -275,7 +296,7 @@ public struct Syllabifier {
                     } else {
                         // Vowel-ending syllable; append and move on, resetting state
                         let lastIsLong = syllable.last.map { Syllabifier.isLongVowel($0) } ?? false
-                        syllables.append((syllable, isLong: lastIsLong)) 
+                        syllables.append((syllable, isLong: lastIsLong))
                         syllable = "\(current)"
                         state = Syllabifier.isLongVowel(current) ? .longMonophthong : .monophthong
                     }
@@ -304,7 +325,7 @@ public struct Syllabifier {
         
         // If we have terminated then confirm that we are not ending without the last syllable
         if !syllable.isEmpty {
-            syllables.append((syllable, isLong: state == .longMonophthong || state == .diphthong))
+            syllables.append((syllable, isLong: inLongVow()))
         }
         
         return syllables
